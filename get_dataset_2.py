@@ -16,7 +16,13 @@ class MyImageDataset(Dataset):
         self.img_labels = []
         for filename in os.listdir(root_dir):
             # Extract the label from the filename
-            label = int(filename.split("_")[0])
+            #label = int(filename.split("_")[0])
+            
+            # Extract the label from root_dir name:
+            if root_dir.split("/")[-1] == 'melanoma':
+                label = 1
+            elif root_dir.split("/")[-1] == 'benign':
+                label = 0
 
             # Add the filename and label to the list
             self.img_filenames.append(os.path.join(root_dir, filename))
@@ -37,10 +43,11 @@ class MyImageDataset(Dataset):
         return img, label
 
 # Create the Dataset object that will be used to load the data
-dataset = MyImageDataset("/path/to/my/images/folder", transform=Compose([
+dataset = MyImageDataset('ISIC_2020/train/benign', transform=Compose([
     Resize((256, 256)),
     ToTensor()
 ]))
+
 
 # Split the data into training, validation, and test sets
 train_size = int(0.8 * len(dataset))

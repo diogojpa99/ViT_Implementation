@@ -9,30 +9,108 @@
 *******************************************************************************************/
 """
 
-# (1)
-# Import the necessary libraries
+############################ Import Libraries ##############################
+
 from PIL import Image
 import numpy as np
 import torchvision
 import torch.nn as nn
-import matplotlib.pyplot as plt
 from torchinfo import summary
-from PIL import Image
 import numpy as np
 import torch
-from glob import glob
+import os
+from torch.utils.data import Dataset, DataLoader
+from torchvision.transforms import Compose, Resize, ToTensor
+import matplotlib.pyplot as plt
 
-# (2)
+######################## Classes and Functions #############################
+
+class MyImageDataset(Dataset):
+    '''
+        Define the Dataset class that will be used to load the data.
+    '''
+    
+    def __init__(self, root_dir, transform = None):
+        '''
+            Get Images filenames and their corresponding labels.
+        '''
+        
+        self.root_dir = root_dir
+        self.transform = transform
+    
+        # Load the list of image filenames and their corresponding labels
+        self.img_filenames=[]
+        self.img_labels=[]
+        
+        for dir in root_dir:
+            for filename in os.listdir(dir):      
+                # Extract the label from root_dir name:
+                if dir.split("/")[-1] == 'melanoma':
+                    label = 1
+                elif dir.split("/")[-1] == 'benign':
+                    label = 0
+                    
+                # Add the filename and label to the list
+                self.img_filenames.append(os.path.join(dir, filename))
+                self.img_labels.append(label)
+                
+        # Generate a random permutation of the data's length
+        permut = np.random.permutation(len(self.img_filenames))
+        # Convert list into numpy array
+        self.img_filenames = np.array(self.img_filenames)
+        self.img_labels = np.array(self.img_labels)
+        # Rearrange the indexes given the permutation
+        self.img_filenames = self.img_filenames[permut]
+        self.img_labels = self.img_labels[permut]
+        # Convert numpy array into list
+        self.img_filenames = self.img_filenames.tolist()
+        self.img_labels = self.img_labels.tolist()
+
+    def __len__(self):
+        '''
+            Get the number of images.
+        '''
+        return len(self.img_filenames)
+        
+    def __getitem__(self, idx):
+        '''
+            Get the images and respective labels
+        '''
+        # Load image and label
+        img = Image.open(self.img_filenames[idx])
+        label = self.img_labels[idx]
+        # Apply any transformations (if provided)
+        if self.transform:
+            img = self.transform(img)
+
+        return img, label
+    
+
+######################## Initializations #############################
+
+# Set the random seed
+np.random.seed(42)
+
+# Defining the directories
+train_dir = ['ISIC_2020/train/melanoma', 'ISIC_2020/train/benign']
+
+# Labels
+labels_map = { 0: "benign", 1: "melanoma" }
+labels_map_inv = { "benign": 0, "melanoma": 1}
+
+############################# main() ##################################
+
+# (1)
 # Download pretrained ViT weights and model
 vit_weights = torchvision.models.ViT_B_16_Weights.DEFAULT 
 pretrained_vit = torchvision.models.vision_transformer.vit_b_16(vit_weights)
 
-# (3)
+# (2)
 # Freeze all layers in the pretrained model
 for param in pretrained_vit.parameters():
   param.requires_grad = False
 
-# (4)
+# (3)
 # Update the pretrained ViT head
 embedding_dim = 768 # ViT_Base
 num_classes = 2
@@ -42,7 +120,7 @@ pretrained_vit.heads = nn.Sequential(
   nn.Linear(in_features=embedding_dim, out_features=num_classes)
 )
 
-# (5)
+# (4)
 # Print a summary using torchinfo (uncomment for actual output)
 summary(model=pretrained_vit, 
          input_size=(1, 3, 224, 224), # (batch_size, color_channels, height, width)
@@ -52,36 +130,26 @@ summary(model=pretrained_vit,
          row_settings=["var_names"]
 )
 
-# (6)
-# Import the data(Images)
-def import_img(img_path, label_flag):
-  
-  images = []
-  for path in img_path:
-    img = plt.imread(path)
-    img_array = np.array(img)
-    images.append(img_array)
-    
-  images = np.array(images)
-  if label_flag == 0: 
-    labels = np.zeros(images.shape[0])
-  elif label_flag == 1:
-    labels = np.ones(images.shape[0])
-      
-  return images, labels
-  
-# Get the list of image paths in the directory
-benign_train = glob('ISIC_2020_light/train/benign_light/*.jpg')
-melanoma_train = glob('ISIC_2020_light/train/melanoma_light/*.jpg')
-benign_test = glob('ISIC_2020_light/val/benign_light/*.jpg')
-melanoma_test = glob('ISIC_2020_light/val/melanoma_light/*.jpg')
-
-x_train_benign, y_train_benign = import_img(benign_train, 0)
-x_train_mela, y_train_mela = import_img(melanoma_train, 1)
-x_test_benign, y_test_benign = import_img(benign_test, 0)
-x_test_mela, y_test_mela = import_img(melanoma_test, 1)
-
-# (7)
+# (5)
 # Preprocess the data
 vit_transforms = vit_weights.transforms()
 
+# (6)
+# Get preprocess data
+# Create the Dataset object that will be used to load the data
+dataset = MyImageDataset(train_dir, transform=vit_transforms)
+
+# Split the data into training, validation, and test sets
+train_size = int(0.8 * len(dataset))
+val_size = int(0.1 * len(dataset))
+test_size = len(dataset) - train_size - val_size
+train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, val_size, test_size])
+
+# Create DataLoaders for the datasets
+train_loader = DataLoader(train_dataset, batch_size=120, shuffle=False)
+val_loader = DataLoader(val_dataset, batch_size=120, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=120, shuffle=False)
+#print(len(train_loader),len(val_loader),len(test_loader))
+
+# (7)
+# Fine-tune a pretrained ViT feature extractor  
